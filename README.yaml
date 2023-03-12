@@ -1,0 +1,84 @@
+patch-o command:  #// Apply patches to multi files from one template file
+    Operations:
+        - base.json + diffA in patch1 => build/A.json
+        - base.json + diffB in patch1 => build/B.json
+    Commands:
+        - # set up:
+            cp  "test/base.json"  "base.json"
+            rm -rf  "build"
+            cp -ap  "test/build_expected/"  "build/"
+        - # make a patch:
+            diff -u4rN "base.json" "build/A.json" >  "patch1"
+            diff -u4rN "base.json" "build/B.json" >> "patch1"
+            ./patch-o --cut-date  "patch1"
+        - # main:
+            rm -rf  "build"
+
+            ./patch-o  "patch1"  #// output a "build" folder
+                #// ./patch-o < "../patch1" command output base path are current folder.
+                #// ./patch-o   "../patch1" command output base path are parent folder.
+        - # main(reverse):
+            sed -E  "s/b@example.com/b---@example.com/"  "test/patch/expected.patch"  >  "patch1"
+
+            ./patch-o -R  "patch1"   #// or  ./patch-o --reverse  "patch1"
+                #// -R is same as standard patch command option name
+        - # main(overwrite if changing):
+            sed -E  "s/b@example.com/b---@example.com/"  "test/patch/expected.patch"  >  "patch1"
+
+            ./patch-o  "patch1"
+                #// Overwrite build/B.json (y/N)
+        - # clean:
+            rm  patch1
+            rm  base.json
+            rm -rf  "build"
+    test:
+        ./patch-o --test
+Standard patch command case:  #// Standard patch command is not supported the patch-o use case.
+    Operations:
+        - base.json + diffA in patch1 => build/A.json
+        - base.json + diffB in patch1 => build/B.json
+    Commands:
+        - # set up:
+            rm  base.json*
+            cp  "test/base.json"  "base.json"
+            rm -rf  "build"
+            cp -ap  "test/build_expected/"  "build/"
+        - # make a patch:
+            diff -u4rN "base.json" "build/A.json" >  "patch1"
+            diff -u4rN "base.json" "build/B.json" >> "patch1"
+        - # set up:
+            rm -rf  "build"
+            mkdir -p  "build"
+        - # main:
+            # select and run one command from the following commands
+            - patch < patch1   # This command will be failed
+                # Output (GNU):
+                #     patching file base.json
+                #     patching file base.json
+                #     Hunk #1 succeeded at 1 with fuzz 2.
+                # Output (BSD):
+                #     patching file base.json
+                #     patching file base.json
+                # base.json:
+                #     changed  (Bad)
+            - patch -i patch1  -o  build
+                # Output (GNU):
+                #      patch: **** Can't create file build : Is a directory
+                # Output (BSD):
+                #     Can't create '____', output is in '____': No such file or directory
+                # base.json:
+                #     changed  (Bad)
+            - patch  "base.json"  -o "build/A.json" < patch1
+                # Output (GNU):
+                #     patching file build/B.json (read from base.json)
+                #     patching file build/B.json (read from base.json)
+                # Output (BSD):
+                #     Can't create '____', output is in '____': No such file or directory
+                # build/A.json (GNU):
+                #     build/A.json + build/B.json
+                # base.json:
+                #     changed  (Bad)
+        - # clean:
+            rm  patch1
+            rm  base.json*
+            rm -rf  "build"

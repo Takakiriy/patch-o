@@ -1,0 +1,366 @@
+#!/bin/bash
+
+function  Main() {
+    if [ "$1" == "--cut-date" ]; then
+        CutDateInPatch  "$2"
+    elif [ "$1" == "-R"  -o  "$1" == "--reverse" ]; then
+        UpdatePatch  "$2"
+    else
+
+        CopyAndAttachPatch  "$1"
+    fi
+}
+
+function  CopyAndAttachPatch() {
+    local  patchPath="$1"
+    local  folderPath="$( GetFolderRelativePath  "${patchPath}"  "/" )"
+    local  patchYAML="$( ChangePatchToYAML "${patchPath}" )"
+    local  oldIFS="$IFS"
+    IFS=$'\n'
+    local  pathPairLines=( $( FilterPathPairLines "${patchYAML}" ) )
+    IFS="$oldIFS"
+    local  overwritten="${False}"
+    local  currentPath="${PWD}"
+    local  workingPath="$( GetParentFullPath "${patchPath}" )"
+    cd  "${workingPath}"
+
+    for  pathPair  in "${pathPairLines[@]}"; do
+        local  attachedPath="$( GetAttachedPath "${pathPair}" )"
+        local  attachedTemporaryPath="$( GetAttachedPath "${pathPair}" )__"
+        local  basePath="$( GetBasePath "${pathPair}" )"
+        local  attachedPathPatten="$( EscapeRegularExpression  "${attachedPath}" )"
+        local  basePathPatten="$( EscapeRegularExpression  "${basePath}" )"
+        local  fieldPattern="${attachedPathPatten} :${basePathPatten}:"
+        local  patch="$( echo  "${patchYAML}"  |  sed -n -E '/'"${fieldPattern}"'/,/^[^ ]/p'  |  grep  "^ *|" )"
+        local  overwriting="${False}"
+        if [ -e "${attachedPath}" ]; then
+            overwriting="${True}"
+        fi
+        mkdir -p  "${attachedPath%/*}"
+
+        echo  "patching file ${folderPath}${attachedPath} (read from ${folderPath}${basePath})"
+        if [ "${overwriting}" == "${False}"  -o  "${overwritten}" == "${True}" ]; then
+
+            echo  "${patch}"  |  sed -E "s/ *\|//"  |  patch  "${basePath}"  -o "${attachedPath}"  > /dev/null  ||  Error
+        else
+            echo  "${patch}"  |  sed -E "s/ *\|//"  |  patch  "${basePath}"  -o "${attachedTemporaryPath}"  > /dev/null  ||  Error
+            diff  "${attachedTemporaryPath}"  "${attachedPath}"  > /dev/null  &&  overwriting="${False}"
+            if [ "${overwriting}" == "${True}" ]; then
+
+                Input  "Overwrite ${attachedPath} (y/N)"
+                if [ "${ReturnValue}" == "y" ]; then
+                    cp  "${attachedTemporaryPath}"  "${attachedPath}"
+                    overwritten="${True}"
+                else
+                    echo  "Stopped overwriting"
+                    rm  "${attachedTemporaryPath}"
+                    return  2
+                fi
+            fi
+            rm  "${attachedTemporaryPath}"
+        fi
+    done
+    cd  "${currentPath}"
+}
+
+function  UpdatePatch() {
+    local  patchPath="$1"
+    if [ "${patchPath}" == "" ]; then
+        Error  "ERROR: No patch file is specified."
+    fi
+    AssertExist  "${patchPath}"
+    local  patchPathTemporary="${patchPath}__"
+    local  patchFullPathTemporary="$( GetFullPath "${patchPath}" )__"
+    local  patchYAML=$( ChangePatchToYAML "${patchPath}" )
+    local  oldIFS="$IFS"
+    IFS=$'\n'
+    local  pathPairLines=( $( FilterPathPairLines "${patchYAML}" ) )
+    IFS="$oldIFS"
+    local  currentPath="${PWD}"
+    local  workingPath="$( GetParentFullPath "${patchPath}" )"
+    if [ "${patchFullPathTemporary}" == "" ]; then
+        Error
+    fi
+    cd  "${workingPath}"
+    rm -f  "${patchFullPathTemporary}"
+
+    for  pathPair  in "${pathPairLines[@]}"; do
+        local  attached="$( GetAttachedPath "${pathPair}" )"
+        local  base="$( GetBasePath "${pathPair}" )"
+
+        #// Output patch
+        echo  "--- ${base}"  >>  "${patchFullPathTemporary}"
+        echo  "+++ ${attached}"  >>  "${patchFullPathTemporary}"
+        diff -u4rN  "${base}"  "${attached}"  |  sed  '1,2d'  >>  "${patchFullPathTemporary}"
+
+        #// Output YAML
+        # echo  "${attached} :${base}: |"  >>  "${patchFullPathTemporary}"
+        # diff -u4rN  "${base}"  "${attached}"  |  sed -E  "s/(.*)/    |\1/"  |  sed  '1,2d'  >>  "${patchFullPathTemporary}"
+    done
+    cd  "${currentPath}"
+    local  changed="${False}"
+    diff -u4rN  "${patchPath}"  "${patchPathTemporary}"  ||  changed="${True}"
+    if [ "${changed}" == "${True}" ]; then
+        cp -ap  "${patchFullPathTemporary}"  "${patchPath}"
+        echo  "updated ${patchPath}"
+    else
+        echo  "not changed ${patchPath}"
+    fi
+    rm  "${patchFullPathTemporary}"
+}
+
+function  CutDateInPatch() {
+    local  patchPath="$1"
+
+    #// before: --- base.json   2023-01-01 11:33:55.990000000 +0900
+    #// after:  --- base.json
+    #ref: https://stackoverflow.com/questions/38291531/suppress-dates-in-diff-urn
+    local  pattern=""
+    pattern="${pattern}"'[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'
+    pattern="${pattern}"' [0-9][0-9]:[0-9][0-9]:[0-9][0-9](\.[0-9]*'
+    pattern="${pattern}"' [+-][0-9][0-9][0-9][0-9])?'
+    pattern="${pattern}"'$'
+
+    local  patch="$( cat "${patchPath}" )"
+    patch="$( echo "${patch}"  |  sed -E  's/^(--- |\+\+\+ )([^ '"$(printf '\t')"']*)[ '"$(printf '\t')"']*'"${pattern}"'/\1\2/' )"
+    echo  "$patch"  >  "$patchPath"
+}
+
+function  ChangePatchToYAML() {
+    local  patchPath="$1"
+    local  patch=""
+    if [ "${patchPath}" == "" ]; then
+        patch="$(</dev/stdin)"
+    else
+        patch="$( cat  "${patchPath}" )"
+    fi
+    local  oldIFS="$IFS"
+    IFS=$'\n'
+    local  lines=( ${patch} )
+    IFS="$oldIFS"
+    local  basePath=""
+    local  attachedPath=""
+
+    for  line  in "${lines[@]}"; do
+        if [ "${line:0:4}" == "--- "  -o  "${line:0:4}" == "+++ " ]; then
+            if [ "${basePath}" == "" ]; then
+                if [ "${line:0:4}" != "--- " ]; then  Error  ;fi
+                basePath="$( echo  "${line}"  |  sed -E  's/^--- //' )"
+            else
+                if [ "${line:0:4}" != "+++ " ]; then  Error  ;fi
+                attachedPath="$( echo  "${line}"  |  sed -E  's/^\+\+\+ //' )"
+
+                echo  "${attachedPath} :${basePath}: |"
+                basePath=""
+                attachedPath=""
+            fi
+        else
+            echo  "    |${line}"
+        fi
+    done
+}
+
+function  FilterPathPairLines() {
+    local  patches="$1"
+    echo  "${patches}" | grep  "^[^ ]"  #// "__AttachedPath__ :__BasePath__: |"
+}
+
+function  GetBasePath() {
+    local  pathPair="$1"  #// "__AttachedPath__ :__BasePath__: |"
+    echo  "${pathPair}"  |  grep -o ':.*:'  |  sed -E  "s/://g"
+}
+
+function  GetAttachedPath() {
+    local  pathPair="$1"  #// "__AttachedPath__ :__BasePath__: |"
+    echo  "${pathPair}"  |  sed -E  "s/:.*//"  |  sed -E  's/[ '"$(printf '\t\r')"']$//'
+}
+
+function  Input() {
+    local  prompt="$1"
+    local  key=""
+    if [ "${#AutomaticInput[@]}" == "${AutomaticInputIndex}" ]; then
+
+        read  -p "${prompt}"  ReturnValue
+    else
+        ReturnValue="${AutomaticInput[$AutomaticInputIndex]}"
+        AutomaticInputIndex=$(( ${AutomaticInputIndex} + 1 ))
+        echo  "${prompt}${ReturnValue}"
+    fi
+}
+AutomaticInput=()
+AutomaticInputIndex=0
+
+function  EscapeRegularExpression() {
+    echo "$1" | sed -E 's/([$^.*+?\(){}|\/[])/\\\1/g' | sed -E 's/]/\\]/g'
+}
+
+function  GetFullPath() {
+    local  relativePath="$1"
+    readlink -f  "${relativePath}"
+}
+
+function  GetParentFullPath() {
+    local  relativePath="$1"
+    local  fullPath="$( readlink -f  "${relativePath}" )"
+    echo  "${fullPath%/*}"
+}
+
+function  GetFolderRelativePath() {
+    local  relativePath="$1"
+    local  lastSeparatorIfNotCurrent="$2"
+
+    local  parentPath="${relativePath%/*}"
+    if [ "${relativePath}" == "${parentPath}" ]; then
+        if [ "${lastSeparatorIfNotCurrent}" == "" ]; then
+            echo  "."
+        else
+            echo  ""
+        fi
+    else
+        echo  "${parentPath}${lastSeparatorIfNotCurrent}"
+    fi
+}
+
+function  AssertExist() {
+    local  path="$1"
+
+    if [ ! -e "${path}" ]; then
+        Error  "ERROR: Not found \"${path}\""
+    fi
+}
+
+function  Error() {
+    local  errorMessage="$1"
+    if [ "${errorMessage}" == "" ]; then
+        errorMessage="ERROR"
+    fi
+
+    echo  "${errorMessage}"
+    ErrorCount=$(( ${ErrorCount} + 1 ))
+    exit  1
+}
+ErrorCount=0
+
+function  TestApply() {
+    local  currentFolder="$1"
+    local  patchPath="$2"
+    echo  ""
+    echo  "### TestApply >> $1"
+
+    # set up:
+        cp  "test/base.json"  "base.json"
+        rm -rf  "build"
+        cp -ap  "test/build_expected/"  "build/"
+    # main:
+        diff -u "base.json" "build/A.json" >  "patch1"
+        diff -u "base.json" "build/B.json" >> "patch1"
+        CutDateInPatch  "patch1"  ||  Error
+        rm -rf  "build"
+    # assert:
+        diff -u4rN  "patch1"  "test/patch/expected.patch"  ||  Error
+
+    # main 2:
+        pushd  "${currentFolder}"  > /dev/null
+
+        Main  "${patchPath}"
+        popd  > /dev/null
+    # assert:
+        diff -u4rN  "build"  "test/build_expected"  ||  Error
+
+    # main 3:
+        pushd  "${currentFolder}"  > /dev/null
+
+        Main  "${patchPath}"  #// Overwrite
+        popd  > /dev/null
+    # assert:
+        #// No user input
+    # clean:
+        rm -rf  "build"
+        rm  "base.json"
+        EndTest
+}
+
+function  TestReverse() {
+    local  currentFolder="$1"
+    local  patchPath="$2"
+    echo  ""
+    echo  "### TestReverse >> $1"
+
+    # set up:
+        cp  "test/base.json"  "base.json"
+        rm -rf  "build"
+        cp -ap  "test/build_expected/"  "build/"
+        sed -E  "s/b@example.com/old@example.com/"  "test/patch/expected.patch"  >  "patch1"
+    # assert:
+        diff -u4rN  "patch1"  "test/patch/expected.patch" > /dev/null  &&  Error
+
+    # main:
+        pushd  "${currentFolder}"  > /dev/null
+
+        Main  "--reverse"  "${patchPath}"
+        popd  > /dev/null
+    # assert:
+        diff -u4rN  "patch1"  "test/patch/expected.patch"  ||  Error
+    # clean:
+        rm -rf  "build"
+        rm  "base.json"
+        EndTest
+}
+
+function  TestManually() {
+    local  yesNo="$1"
+    echo  ""
+    echo  "### TestManually >> $1"
+
+    # set up:
+        AutomaticInput=( "${yesNo}" )
+        AutomaticInputIndex=0
+        cp  "test/base.json"  "base.json"
+        cp  "test/patch/expected.patch"  "patch1"
+        rm -rf  "build"
+        mkdir -p  "build"
+        sed -E  "s/a@example.com/a---@example.com/"  "test/build_expected/A.json"  >  "build/A.json"
+        sed -E  "s/b@example.com/b---@example.com/"  "test/build_expected/B.json"  >  "build/B.json"
+
+    #main:
+        Main  "patch1"
+    #assert:
+        local  result="not applied"
+        diff -u4rN  "build"  "test/build_expected" > /dev/null  &&  result="applied"
+        echo  ""
+        echo  "Result: ${result}"
+        if [ "${yesNo}" == "y" ]; then
+            if [ "${result}" != "applied" ]; then  Error  ;fi
+        else
+            if [ "${result}" != "not applied" ]; then  Error  ;fi
+            if [ -e "build/A.json__" ]; then  Error  ;fi
+        fi
+        if [ "${AutomaticInputIndex}" != 1 ]; then  Error  ;fi
+    # clean:
+        rm  "base.json"
+        rm  "patch1"
+        rm -rf  "build"
+        EndTest
+}
+
+function  EndTest() {
+    echo  ""
+    echo  "ErrorCount: ${ErrorCount}"
+}
+
+function  TestAll() {
+    TestApply  "."  "patch1"
+    TestReverse  "."  "patch1"
+    TestApply  "test"  "../patch1"
+    TestReverse  "test"  "../patch1"
+    TestManually  "y"
+    TestManually  "n"
+}
+
+True=0
+False=1
+if [ "$1" == "--test" ]; then
+    TestAll  "$@"
+else
+    Main  "$@"
+fi

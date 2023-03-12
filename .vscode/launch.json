@@ -1,0 +1,21 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Test All",
+            "type": "bashdb",
+            "request": "launch",
+            "program": "${workspaceFolder}/patch-o",
+            "cwd": "${workspaceFolder}",
+            "args": ["--test"]
+        },
+        {
+            "name": "Debug",
+            "type": "bashdb",
+            "request": "launch",
+            "program": "${workspaceFolder}/patch-o",
+            "cwd": "${workspaceFolder}",
+            "args": ["--cut-date", "patch1"]
+        }
+    ]
+}

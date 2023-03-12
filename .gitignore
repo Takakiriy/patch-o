@@ -1,0 +1,8 @@
+.commit
+.commit_*
+.DS_Store
+.env
+
+build*
+patches.yaml
+original.json*
