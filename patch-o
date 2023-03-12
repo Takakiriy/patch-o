@@ -7,19 +7,29 @@ function  Main() {
         UpdatePatch  "$2"
     else
 
-        CopyAndAttachPatch  "$1"
+        CopyAndAttachPatch  "$1"  "$2"
     fi
 }
 
 function  CopyAndAttachPatch() {
-    local  patchPath="$1"
+    if [ "$2" == "" ]; then
+        local  option=""
+        local  patchPath="$1"
+    else
+        local  option="$1"
+        local  patchPath="$2"
+    fi
     local  folderPath="$( GetFolderRelativePath  "${patchPath}"  "/" )"
     local  patchYAML="$( ChangePatchToYAML "${patchPath}" )"
     local  oldIFS="$IFS"
     IFS=$'\n'
     local  pathPairLines=( $( FilterPathPairLines "${patchYAML}" ) )
     IFS="$oldIFS"
-    local  overwritten="${False}"
+    if [ "${option}" == "-f" ]; then
+        local  overwritten="${True}"
+    else
+        local  overwritten="${False}"
+    fi
     local  currentPath="${PWD}"
     local  workingPath="$( GetParentFullPath "${patchPath}" )"
     cd  "${workingPath}"
