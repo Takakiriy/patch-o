@@ -164,6 +164,9 @@ function  SortPathPairLines() {
             break
         fi
     done
+    if [ "${ii}" == "${infiniteLoopStopper}" ]; then
+        Error  "Too many level of dependency between base path and attached path."
+    fi
     IFS="$oldIFS"
     local  maxLevel=$(( ${i} - 1 ))
     sortedPaths=""
