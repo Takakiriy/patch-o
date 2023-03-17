@@ -23,7 +23,7 @@ function  CopyAndAttachPatch() {
     local  patchYAML="$( ChangePatchToYAML "${patchPath}" )"
     local  oldIFS="$IFS"
     IFS=$'\n'
-    local  pathPairLines=( $( FilterPathPairLines "${patchYAML}" ) )
+    local  pathPairLines=( $( SortPathPairLines "$( FilterPathPairLines "${patchYAML}" )" ) )
     IFS="$oldIFS"
     if [ "${option}" == "-f" ]; then
         local  overwritten="${True}"
@@ -134,6 +134,44 @@ function  CutDateInPatch() {
     local  patch="$( cat "${patchPath}" )"
     patch="$( echo "${patch}"  |  sed -E  's/^(--- |\+\+\+ )([^ '"$(printf '\t')"']*)[ '"$(printf '\t')"']*'"${pattern}"'/\1\2/' )"
     echo  "$patch"  >  "$patchPath"
+}
+
+function  SortPathPairLines() {
+    local  pathPairLines="$1"
+    local  oldIFS="$IFS"
+    IFS=$'\n'
+    local  infiniteLoopStopper=99
+
+    #// line example in "paths": "base :attached:1"
+    local  paths="$( echo  "${pathPairLines}"  |  sed -E  's/$/1/')"
+
+    for (( ii = 2; ii < ${infiniteLoopStopper}; ii += 1 )); do
+        local  i=$(( ${ii} - 1 ))
+        local  nextPaths="${paths}"
+        for  pathPair  in ${pathPairLines[@]}; do
+            local  attachedPath="$( GetAttachedPath "${pathPair}" )"
+            local  attachedPathPatten="$( EscapeRegularExpression  "${attachedPath}" )"
+
+            nextPaths="$( echo  "${nextPaths}"  |  sed -E  "s/^(${attachedPathPatten} :[^:]*:)${i}/¥1:${ii}/" )"
+        done
+        if [ "${nextPaths}" == "${paths}" ]; then
+            local  finished="${True}"
+        else
+            local  finished="${False}"
+        fi
+        paths="${nextPaths}"
+        if [ "${finished}" == "${True}" ]; then
+            break
+        fi
+    done
+    IFS="$oldIFS"
+    local  maxLevel=$(( ${i} - 1 ))
+    sortedPaths=""
+    for (( i = 1; i <= ${maxLevel}; i += 1 )); do
+        sortedPaths="$( AppendToNextLine  "${sortedPaths}"  "$( echo "${paths}"  |  grep ':${i}$' )" )"
+    done
+
+    echo  echo  "{sortedPaths}"  |  sed -E  's/[0-9]*$//'
 }
 
 function  ChangePatchToYAML() {
