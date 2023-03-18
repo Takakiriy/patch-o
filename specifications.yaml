@@ -1,0 +1,24 @@
+patchYAML: #keyword:
+    Example: |
+        build/A.json :base.json: |
+            |@@ -1,5 +1,5 @@
+            | {
+            |-    "ID": "A123456",
+            |+    "ID": "A000001",
+            |     "email": "a@example.com",
+            |     "Name": "A"
+            | }
+        build/B.json :base.json: |
+            |@@ -1,5 +1,6 @@
+            | {
+            |     "ID": "A123456",
+            |-    "email": "a@example.com",
+            |-    "Name": "A"
+            |+    "email": "b@example.com",
+            |+    "Name": "B"
+            |+    // dummy file date.json    2022-01-01 11:22:33.900000000 +0900
+            | }"
+pathPairLines: #keyword:
+    Example: |
+        build/A.json :base.json: |
+        build/B.json :base.json: |
