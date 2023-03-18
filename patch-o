@@ -141,26 +141,35 @@ function  SortPathPairLines() {
     local  oldIFS="$IFS"
     IFS=$'\n'
     local  infiniteLoopStopper=99
+    local  noChangeCount=0
+    local  pathPairCount="$( echo "${pathPairLines}"  |  grep -c "^" )"
+    local  maxLevelBar='12345678901234567890123456789012'
+    local  firstLevelBar="${maxLevelBar:0:${pathPairCount}}"
 
-    #// line example in "paths": "base :attached: |:1"
-    local  paths="$( echo  "${pathPairLines}"  |  sed -E  's/$/:1/')"
+    #// line example in "paths" is "__Attached__ :__Base__: |:__LevelBar__".
+    #search: SortPathPairLines
+    local  paths="$( echo  "${pathPairLines}"  |  sed -E  's/$/:'"${firstLevelBar}"'/')"
 
     for (( ii = 2; ii < ${infiniteLoopStopper}; ii += 1 )); do
-        local  i=$(( ${ii} - 1 ))
-        local  nextPaths="${paths}"
         for  pathPair  in ${pathPairLines[@]}; do
             local  attachedPath="$( GetAttachedPath "${pathPair}" )"
             local  attachedPathPatten="$( EscapeRegularExpression  "${attachedPath}" )"
+            local  searchingBasePathPatten="${attachedPathPatten}"
+            local  levelBar="$( echo  "${paths}"  |  grep -E  "^${attachedPathPatten} :[^:]*:[^:]*:[0-9]*"  |  sed -E  's/.*:([0-9]*$)/\1/' )"
 
-            nextPaths="$( echo  "${nextPaths}"  |  sed -E  "s/^(${attachedPathPatten} :[^:]*:)${i}/¥1:${ii}/" )"
+            local  nextPaths="$( echo  "${paths}"  |  sed -E  "s/^([^:]*:${searchingBasePathPatten}:[^:]*):${levelBar}"'.*/\1:'"${levelBar:0:-1}/" )"
+            if [ "${nextPaths}" == "${paths}" ]; then
+                noChangeCount=$(( noChangeCount + 1 ))
+                if [ "${noChangeCount}" == "${pathPairCount}" ]; then
+                    break
+                fi
+            else
+                noChangeCount=0
+                levelBar="${levelBar:0:-1}"
+            fi
+            paths="${nextPaths}"
         done
-        if [ "${nextPaths}" == "${paths}" ]; then
-            local  finished="${True}"
-        else
-            local  finished="${False}"
-        fi
-        paths="${nextPaths}"
-        if [ "${finished}" == "${True}" ]; then
+        if [ "${noChangeCount}" == "${pathPairCount}" ]; then
             break
         fi
     done
@@ -168,10 +177,11 @@ function  SortPathPairLines() {
         Error  "Too many level of dependency between base path and attached path."
     fi
     IFS="$oldIFS"
-    local  maxLevel="${i}"
+    local  levelBar="${firstLevelBar}"
     sortedPaths=""
-    for (( i = 1; i <= ${maxLevel}; i += 1 )); do
-        sortedPaths="$( AppendToNextLine  "${sortedPaths}"  "$( echo "${paths}"  |  grep ":${i}\$" )" )"
+    while [ "${levelBar}" != "" ]; do
+        sortedPaths="$( AppendToNextLine  "${sortedPaths}"  "$( echo "${paths}"  |  grep ":${levelBar}\$" )" )"
+        levelBar="${levelBar:0:-1}"
     done
 
     echo  "${sortedPaths}"  |  sed -E  's/[0-9]*$//'
@@ -301,6 +311,21 @@ function  Error() {
 }
 ErrorCount=0
 
+# ExitIfMatched
+#     Check exit code and return code in $( ). If checking was failed, do "exit" command.
+# Example:
+#     local  out="$(x="$( command )" && echo "$x" || echo "(ERROR:$?)" )"
+#     ExitIfMatched  "${out}"  '^\(ERROR:([0-9]*)\)$'
+function  ExitIfMatched() {
+    local  output="$1"
+    local  regularExpression="$2"
+
+    if [[ "${output}" =~ ${regularExpression} ]]; then
+        local  exitCode="$( echo "${output}"  |  sed -E  's/'"${regularExpression}"'/\1/')"
+        exit  "${exitCode}"
+    fi
+}
+
 function  TestApply() {
     local  currentFolder="$1"
     local  patchPath="$2"
@@ -367,6 +392,47 @@ function  TestReverse() {
         EndTest
 }
 
+function  TestNestApply() {
+    echo  ""
+    echo  "### TestNestApply >> $1"
+    # Also, this test has redirect case.  ./patch-o < __Patch__
+    local  expectedOutput=\
+'patching file build/A.json (read from base.json)
+patching file build/last/A.json (read from build/A.json)
+patching file build/AA.json (read from build/A.json)
+patching file build/AAA.json (read from build/AA.json)
+patching file build/last/AAA.json (read from build/AAA.json)'
+
+    # set up:
+        cp  "test/base.json"  "base.json"
+        rm -rf  "build"
+        cp -ap  "test/2/build_expected/"  "build/"
+    # main:
+        cp  "test/2/nested.patch"  "_tmp.patch"
+if [ "${_Dbg_DEBUGGER_LEVEL}" == "" ]; then            
+echo  "\"cwd\": \"${PWD}\","
+echo  "\"args\": [\"_tmp.patch\"],"
+read  -p "break point> "  dummyVariable
+else
+        # Main  "_tmp.patch"
+        ./patch-o  "_tmp.patch"
+        # cat "_tmp.patch"  |  ./patch-o
+        rm  "_tmp.patch"
+
+        # cat "test/2/nested.patch"  |  ./patch-o 
+        # local  output="$(x="$( cat "test/2/nested.patch"  |  ./patch-o  )" && echo "$x" || echo "(ERROR:$?)" )"
+fi
+        ExitIfMatched  "${output}"  '^\(ERROR:([0-9]*)\)$'
+        echo  "${output}"
+    # assert:
+        if [ "${output}" != "${expectedOutput}" ]; then  Error  ;fi
+        diff -u4rN  "build"  "test/2/build_expected" ||  Error
+    # clean:
+        rm -rf  "build"
+        rm  "base.json"
+        EndTest
+}
+
 function  TestManually() {
     local  yesNo="$1"
     echo  ""
@@ -413,6 +479,7 @@ function  TestAll() {
     TestReverse  "."  "patch1"
     TestApply  "test"  "../patch1"
     TestReverse  "test"  "../patch1"
+    # TestNestApply
     TestManually  "y"
     TestManually  "n"
 }
@@ -429,7 +496,7 @@ function  pp() {
     IFS=$'\n'
     local  valueLines=( ${value} )
     IFS="$oldIFS"
-    if [[ "$(declare -p ${variableName})" =~ "declare -a" ]]; then
+    if [[ "$(declare -p ${variableName} 2>&1 )" =~ "declare -a" ]]; then
         local  type="array"
     elif [ "${#valueLines[@]}" == 1  -o  "${#valueLines[@]}" == 0 ]; then
         local  type="oneLine"
