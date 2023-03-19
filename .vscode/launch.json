@@ -15,7 +15,8 @@
             "request": "launch",
             "program": "${workspaceFolder}/patch-o",
             "cwd": "${workspaceFolder}",
-            "args": ["--cut-date", "patch1"]
+            // "args": ["--cut-date", "patch1"]
+            "args": ["_tmp.patch"]
         }
     ]
 }

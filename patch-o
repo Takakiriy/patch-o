@@ -47,6 +47,7 @@ function  CopyAndAttachPatch() {
             overwriting="${True}"
         fi
         mkdir -p  "${attachedPath%/*}"
+pp "$pathPair" pathPair
 
         echo  "patching file ${folderPath}${attachedPath} (read from ${folderPath}${basePath})"
         if [ "${overwriting}" == "${False}"  -o  "${overwritten}" == "${True}" ]; then
@@ -70,6 +71,7 @@ function  CopyAndAttachPatch() {
             rm  "${attachedTemporaryPath}"
         fi
     done
+pp  "end" end
     cd  "${currentPath}"
 }
 
@@ -155,9 +157,10 @@ function  SortPathPairLines() {
             local  attachedPath="$( GetAttachedPath "${pathPair}" )"
             local  attachedPathPatten="$( EscapeRegularExpression  "${attachedPath}" )"
             local  searchingBasePathPatten="${attachedPathPatten}"
-            local  levelBar="$( echo  "${paths}"  |  grep -E  "^${attachedPathPatten} :[^:]*:[^:]*:[0-9]*"  |  sed -E  's/.*:([0-9]*$)/\1/' )"
+            local  currentLevelBar="$( echo  "${paths}"  |  grep -E  "^${attachedPathPatten} :[^:]*:[^:]*:[0-9]*"  |  sed -E  's/.*:([0-9]*$)/\1/' )"
+            local  correctLevelBar="${currentLevelBar:0:${#currentLevelBar}-1}"
 
-            local  nextPaths="$( echo  "${paths}"  |  sed -E  "s/^([^:]*:${searchingBasePathPatten}:[^:]*):${levelBar}"'.*/\1:'"${levelBar:0:-1}/" )"
+            local  nextPaths="$( echo  "${paths}"  |  sed -E  "s/^([^:]*:${searchingBasePathPatten}:[^:]*):${currentLevelBar}"'.*/\1:'"${correctLevelBar}/" )"
             if [ "${nextPaths}" == "${paths}" ]; then
                 noChangeCount=$(( noChangeCount + 1 ))
                 if [ "${noChangeCount}" == "${pathPairCount}" ]; then
@@ -165,7 +168,6 @@ function  SortPathPairLines() {
                 fi
             else
                 noChangeCount=0
-                levelBar="${levelBar:0:-1}"
             fi
             paths="${nextPaths}"
         done
@@ -181,7 +183,7 @@ function  SortPathPairLines() {
     sortedPaths=""
     while [ "${levelBar}" != "" ]; do
         sortedPaths="$( AppendToNextLine  "${sortedPaths}"  "$( echo "${paths}"  |  grep ":${levelBar}\$" )" )"
-        levelBar="${levelBar:0:-1}"
+        levelBar="${levelBar:0:${#levelBar}-1}"
     done
 
     echo  "${sortedPaths}"  |  sed -E  's/[0-9]*$//'
@@ -401,29 +403,30 @@ function  TestNestApply() {
 patching file build/last/A.json (read from build/A.json)
 patching file build/AA.json (read from build/A.json)
 patching file build/AAA.json (read from build/AA.json)
-patching file build/last/AAA.json (read from build/AAA.json)'
+patching file build/last/AAA.json (read from build/AAA.json)
+patching file build/last/AAAA.json (read from build/last/AAA.json)'
 
     # set up:
-        cp  "test/base.json"  "base.json"
+        cp  "test/2/base.json"  "base.json"
         rm -rf  "build"
         cp -ap  "test/2/build_expected/"  "build/"
     # main:
         cp  "test/2/nested.patch"  "_tmp.patch"
+        # Main  "_tmp.patch"
 if [ "${_Dbg_DEBUGGER_LEVEL}" == "" ]; then            
 echo  "\"cwd\": \"${PWD}\","
 echo  "\"args\": [\"_tmp.patch\"],"
 read  -p "break point> "  dummyVariable
 else
-        # Main  "_tmp.patch"
         ./patch-o  "_tmp.patch"
+fi
         # cat "_tmp.patch"  |  ./patch-o
         rm  "_tmp.patch"
 
         # cat "test/2/nested.patch"  |  ./patch-o 
-        # local  output="$(x="$( cat "test/2/nested.patch"  |  ./patch-o  )" && echo "$x" || echo "(ERROR:$?)" )"
-fi
-        ExitIfMatched  "${output}"  '^\(ERROR:([0-9]*)\)$'
+        local  output="$(x="$( cat "test/2/nested.patch"  |  ./patch-o  )" && echo "$x" || echo "(ERROR:$?)" )"
         echo  "${output}"
+        ExitIfMatched  "${output}"  '^\(ERROR:([0-9]*)\)$'
     # assert:
         if [ "${output}" != "${expectedOutput}" ]; then  Error  ;fi
         diff -u4rN  "build"  "test/2/build_expected" ||  Error
@@ -475,13 +478,13 @@ function  EndTest() {
 }
 
 function  TestAll() {
-    TestApply  "."  "patch1"
-    TestReverse  "."  "patch1"
-    TestApply  "test"  "../patch1"
-    TestReverse  "test"  "../patch1"
-    # TestNestApply
-    TestManually  "y"
-    TestManually  "n"
+    # TestApply  "."  "patch1"
+    # TestReverse  "."  "patch1"
+    # TestApply  "test"  "../patch1"
+    # TestReverse  "test"  "../patch1"
+    TestNestApply
+    # TestManually  "y"
+    # TestManually  "n"
 }
 
 #// pp "$config"
@@ -505,25 +508,25 @@ function  pp() {
     fi
 
     if [[ "${type}" == "oneLine" ]]; then
-        echo  "@@@${variableName}= \"${value}\" ---------------------------"
+        echo  "@@@${variableName}= \"${value}\" ---------------------------"  >&2
     elif [[ "${type}" == "multiLine" ]]; then
-        echo  "@@@${variableName}---------------------------"
-        echo  "\"${value}\""
+        echo  "@@@${variableName}---------------------------"  >&2
+        echo  "\"${value}\"" >&2
     elif [[ "${type}" == "array" ]]; then
-        echo  "@@@${variableName}---------------------------"
+        echo  "@@@${variableName}---------------------------"  >&2
         local  count="$3"
         if [ "${count}" == "" ]; then
-            echo  "[0]: \"$4\""
-            echo  "[1]: ERROR: pp parameter is too few"
+            echo  "[0]: \"$4\""  >&2
+            echo  "[1]: ERROR: pp parameter is too few"  >&2
         else
             local  i="0"
             for (( i = 0; i < ${count}; i += 1 ));do
-                echo  "[$i]: \"$4\""
+                echo  "[$i]: \"$4\""  >&2
                 shift
             done
         fi
     else
-        echo  "@@@${variableName}? ---------------------------"
+        echo  "@@@${variableName}? ---------------------------"  >&2
     fi
 }
 
