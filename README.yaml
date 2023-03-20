@@ -23,14 +23,14 @@ patch-o command:  #// Apply patches to multi files from one template file
             ./patch-o -R  "patch1"   #// or  ./patch-o --reverse  "patch1"
                 #// -R is same as standard patch command option name
         - # main(overwrite if changing):
-            sed -E  "s/b@example.com/b---@example.com/"  "test/patch/expected.patch"  >  "patch1"
+            sed -E -i  "s/b@example.com/b---@example.com/"  "build/B.json"
 
             ./patch-o  "patch1"
-                #// Overwrite build/B.json (y/N)
+                #// Stopped overwriting. To overwrite, use -y option.
         - # main(overwrite):
-            sed -E  "s/b@example.com/b---@example.com/"  "test/patch/expected.patch"  >  "patch1"
+            sed -E -i  "s/b@example.com/b---@example.com/"  "build/B.json"
 
-            ./patch-o -f  "patch1"
+            ./patch-o -y  "patch1"
         - # clean:
             rm  patch1
             rm  base.json

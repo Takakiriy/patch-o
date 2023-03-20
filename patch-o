@@ -1,35 +1,26 @@
 #!/bin/bash
 
 function  Main() {
-    if [ "$1" == "--cut-date" ]; then
-        CutDateInPatch  "$2"
-    elif [ "$1" == "-R"  -o  "$1" == "--reverse" ]; then
-        UpdatePatch  "$2"
+    if [ "${CUT_DATE_FLAG}" == "YES" ]; then
+        CutDateInPatch  "$@"
+    elif [ "${REVERSE_FLAG}" == "YES" ]; then
+        UpdatePatch  "$@"
+    elif [ "${VERSION_FLAG}" == "YES" ]; then
+        echo  "1.0.0"
     else
 
-        CopyAndAttachPatch  "$1"  "$2"
+        CopyAndAttachPatch  "$@"
     fi
 }
 
 function  CopyAndAttachPatch() {
-    if [ "$2" == "" ]; then
-        local  option=""
-        local  patchPath="$1"
-    else
-        local  option="$1"
-        local  patchPath="$2"
-    fi
+    local  patchPath="$1"
     local  folderPath="$( GetFolderRelativePath  "${patchPath}"  "/" )"
     local  patchYAML="$( ChangePatchToYAML "${patchPath}" )"  #search: patchYAML
     local  oldIFS="$IFS"
     IFS=$'\n'
     local  pathPairLines=( $( SortPathPairLines "$( FilterPathPairLines "${patchYAML}" )" ) )  #search: pathPairLines
     IFS="$oldIFS"
-    if [ "${option}" == "-f" ]; then
-        local  overwritten="${True}"
-    else
-        local  overwritten="${False}"
-    fi
     local  currentPath="${PWD}"
     local  workingPath="$( GetParentFullPath "${patchPath}" )"
     cd  "${workingPath}"
@@ -49,7 +40,7 @@ function  CopyAndAttachPatch() {
         mkdir -p  "${attachedPath%/*}"
 
         echo  "patching file ${folderPath}${attachedPath} (read from ${folderPath}${basePath})"  #search: patch-o error messages
-        if [ "${overwriting}" == "${False}"  -o  "${overwritten}" == "${True}" ]; then
+        if [ "${overwriting}" == "${False}" ]; then
 
             local  output="$( echo  "${patch}"  |  sed -E "s/ *\|//"  |  patch  "${basePath}"  -o "${attachedPath}"  ||  echo "(ERROR)" )"
             if LastIs  "${output}"  "(ERROR)"; then  PatchCommandError  "${output}"  "${patch}"  "${basePath}"  "${attachedPath}"  ;fi
@@ -59,12 +50,10 @@ function  CopyAndAttachPatch() {
             diff  "${attachedTemporaryPath}"  "${attachedPath}"  > /dev/null  &&  overwriting="${False}"
             if [ "${overwriting}" == "${True}" ]; then
 
-                Input  "Overwrite ${attachedPath} (y/N)"
-                if [ "${ReturnValue}" == "y" ]; then
+                if [ "${YES_FLAG}" == "YES" ]; then
                     cp  "${attachedTemporaryPath}"  "${attachedPath}"
-                    overwritten="${True}"
                 else
-                    echo  "Stopped overwriting"
+                    echo  "Stopped overwriting. To overwrite, use -y option."  >&2
                     rm  "${attachedTemporaryPath}"
                     return  2
                 fi
@@ -95,6 +84,13 @@ function  UpdatePatch() {
     fi
     cd  "${workingPath}"
     rm -f  "${patchFullPathTemporary}"
+    for  pathPair  in "${pathPairLines[@]}"; do
+        local  attached="$( GetAttachedPath "${pathPair}" )"
+        local  base="$( GetBasePath "${pathPair}" )"
+
+        AssertExist  "${attached}"
+        AssertExist  "${base}"
+    done
 
     for  pathPair  in "${pathPairLines[@]}"; do
         local  attached="$( GetAttachedPath "${pathPair}" )"
@@ -255,21 +251,6 @@ function  PatchCommandError() {
     Error  "ERROR: Cannot attach a patch. Probably because it doesn't match the text before replacement."
 }
 
-function  Input() {
-    local  prompt="$1"
-    local  key=""
-    if [ "${#AutomaticInput[@]}" == "${AutomaticInputIndex}" ]; then
-
-        read  -p "${prompt}"  ReturnValue
-    else
-        ReturnValue="${AutomaticInput[$AutomaticInputIndex]}"
-        AutomaticInputIndex=$(( ${AutomaticInputIndex} + 1 ))
-        echo  "${prompt}${ReturnValue}"
-    fi
-}
-AutomaticInput=()
-AutomaticInputIndex=0
-
 function  EscapeRegularExpression() {
     echo "$1" | sed -E 's/([$^.*+?\(){}|\/[])/\\\1/g' | sed -E 's/]/\\]/g'
 }
@@ -374,7 +355,7 @@ function  TestApply() {
         diff -u "base.json" "build/B.json" >> "patch1"
         CutDateInPatch  "patch1"  ||  Error
         rm -rf  "build"
-    # assert:
+    # check:
         diff -u4rN  "patch1"  "test/patch/expected.patch"  ||  Error
 
     # main 2:
@@ -382,15 +363,15 @@ function  TestApply() {
 
         Main  "${patchPath}"
         popd  > /dev/null
-    # assert:
+    # check:
         diff -u4rN  "build"  "test/build_expected"  ||  Error
 
     # main 3:
         pushd  "${currentFolder}"  > /dev/null
 
-        Main  "${patchPath}"  #// Overwrite
+        "${ThisScript}"  "${patchPath}"  #// Overwrite
         popd  > /dev/null
-    # assert:
+    # check:
         #// No user input
     # clean:
         rm -rf  "build"
@@ -409,15 +390,14 @@ function  TestReverse() {
         rm -rf  "build"
         cp -ap  "test/build_expected/"  "build/"
         sed -E  "s/b@example.com/old@example.com/"  "test/patch/expected.patch"  >  "patch1"
-    # assert:
+    # check:
         diff -u4rN  "patch1"  "test/patch/expected.patch" > /dev/null  &&  Error
-
     # main:
         pushd  "${currentFolder}"  > /dev/null
 
-        Main  "--reverse"  "${patchPath}"
+        "${ThisScript}"  --reverse  "${patchPath}"
         popd  > /dev/null
-    # assert:
+    # check:
         diff -u4rN  "patch1"  "test/patch/expected.patch"  ||  Error
     # clean:
         rm -rf  "build"
@@ -427,7 +407,7 @@ function  TestReverse() {
 
 function  TestNestApply() {
     echo  ""
-    echo  "### TestNestApply >> $1"
+    echo  "### TestNestApply"
     # Also, this test has redirect case.  ./patch-o < __Patch__
     local  expectedOutput=\
 'patching file build/A.json (read from base.json)
@@ -439,12 +419,11 @@ patching file build/last/AAAA.json (read from build/last/AAA.json)'
     # set up:
         cp  "test/2/base.json"  "base.json"
         rm -rf  "build"
-        cp -ap  "test/2/build_expected/"  "build/"
     # main:
-        local  output="$(x="$( cat "test/2/nested.patch"  |  ./patch-o  )" && echo "$x" || echo "(ERROR:$?)" )"
+        local  output="$(x="$( cat "test/2/nested.patch"  |  "${ThisScript}"  )" && echo "$x" || echo "(ERROR:$?)" )"
         echo  "${output}"
         ExitIfMatched  "${output}"  '^\(ERROR:([0-9]*)\)$'
-    # assert:
+    # check:
         if [ "${output}" != "${expectedOutput}" ]; then  Error  ;fi
         diff -u4rN  "build"  "test/2/build_expected" ||  Error
     # clean:
@@ -455,8 +434,7 @@ patching file build/last/AAAA.json (read from build/last/AAA.json)'
 
 function  TestNestApplyError() {
     echo  ""
-    echo  "### TestNestApplyError >> $1"
-    local  expectedOutput=''
+    echo  "### TestNestApplyError"
 
     # set up:
         cp  "test/2/base.json"  "base.json"
@@ -464,11 +442,53 @@ function  TestNestApplyError() {
         cp -ap  "test/2/build_expected/"  "build/"
         cat  "test/2/nested.patch"  |  sed -E  '26 s/A000001/BadOldID/'  >  "_nested.patch"
     # main:
-        output="$( cat "_nested.patch"  |  ./patch-o  2>&1 )"
+        output="$( cat "_nested.patch"  |  "${ThisScript}"  2>&1 )"
         echo "${output}"
         if [ "$( echo "${output}"  |  grep 'BadOldID' )" == "" ]; then  Error  ;fi
         if [ "$( echo "${output}"  |  grep 'build/A.json' )" == "" ]; then  Error  ;fi
         if [ "$( echo "${output}"  |  grep 'build/AA.json' )" == "" ]; then  Error  ;fi
+    # clean:
+        rm -rf  "build"
+        rm  "base.json"
+        rm  "_nested.patch"
+        EndTest
+}
+
+function  TestNestReverse() {
+    echo  ""
+    echo  "### TestNestReverse"
+
+    # set up:
+        cp  "test/2/base.json"  "base.json"
+        rm -rf  "build"
+        cp -ap  "test/2/build_expected/"  "build/"
+        cat  "test/2/nested.patch"  |  sed -E  's/A00/AAA/'  >  "_nested.patch"
+        diff -u4rN  "_nested.patch"  "test/2/nested.patch"  &&  Error
+    # main:
+        "${ThisScript}" --reverse -y  "_nested.patch"
+    # check:
+        diff -u4rN  "_nested.patch"  "test/2/nested.patch"  ||  Error
+    # clean:
+        rm -rf  "build"
+        rm  "base.json"
+        rm  "_nested.patch"
+        EndTest
+}
+
+function  TestNestReverseError() {
+    echo  ""
+    echo  "### TestNestReverseError"
+
+    # set up:
+        cp  "test/2/base.json"  "base.json"
+        rm -rf  "build"
+        cp -ap  "test/2/build_expected/"  "build/"
+        rm  "build/AA.json"
+        cp  "test/2/nested.patch"  "_nested.patch"
+    # main:
+        output="$( "${ThisScript}" --reverse -y  "_nested.patch"  2>&1 )"
+        echo "${output}"
+        if [ "$( echo "${output}"  |  grep 'Not found "build/AA.json"' )" == "" ]; then  Error  ;fi
     # clean:
         rm -rf  "build"
         rm  "base.json"
@@ -482,18 +502,20 @@ function  TestManually() {
     echo  "### TestManually >> $1"
 
     # set up:
-        AutomaticInput=( "${yesNo}" )
-        AutomaticInputIndex=0
+        if [ "${yesNo}" == "y" ]; then
+            local  yesOption="-y"
+        else
+            local  yesOption=""
+        fi
         cp  "test/base.json"  "base.json"
         cp  "test/patch/expected.patch"  "patch1"
         rm -rf  "build"
         mkdir -p  "build"
         sed -E  "s/a@example.com/a---@example.com/"  "test/build_expected/A.json"  >  "build/A.json"
         sed -E  "s/b@example.com/b---@example.com/"  "test/build_expected/B.json"  >  "build/B.json"
-
-    #main:
-        Main  "patch1"
-    #assert:
+    # main:
+        "${ThisScript}"  ${yesOption}  "patch1"
+    # check:
         local  result="not applied"
         diff -u4rN  "build"  "test/build_expected" > /dev/null  &&  result="applied"
         echo  ""
@@ -504,7 +526,6 @@ function  TestManually() {
             if [ "${result}" != "not applied" ]; then  Error  ;fi
             if [ -e "build/A.json__" ]; then  Error  ;fi
         fi
-        if [ "${AutomaticInputIndex}" != 1 ]; then  Error  ;fi
     # clean:
         rm  "base.json"
         rm  "patch1"
@@ -524,6 +545,8 @@ function  TestAll() {
     TestReverse  "test"  "../patch1"
     TestNestApply
     TestNestApplyError
+    TestNestReverse
+    TestNestReverseError
     TestManually  "y"
     TestManually  "n"
 }
@@ -579,9 +602,34 @@ function  pp() {
     fi
 }
 
+POSITIONAL_ARGS=()
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -R|--reverse)  REVERSE_FLAG="YES"; shift;;  #// Without value
+        --cut-date)  CUT_DATE_FLAG="YES"; shift;;  #// Without value
+        -y)  YES_FLAG="YES"; shift;;  #// Without value
+        --version)  VERSION_FLAG="YES"; shift;;  #// Without value
+        --test)  TEST_FLAG="YES"; shift;;  #// Without value
+        -*)  #// Multiple short name options. e.g.-yR
+            OPTIONS=$1
+            for (( i=1; i<${#OPTIONS}; i++ )); do
+                case "-${OPTIONS:$i:1}" in
+                    -R)  REVERSE_FLAG="YES";;
+                    -y)  YES_FLAG="YES";;
+                    *) echo "Unknown option -${OPTIONS:$i:1}"; exit 1;;
+                esac
+            done
+            unset OPTIONS; shift;;
+        *) POSITIONAL_ARGS+=("$1"); shift;;
+    esac
+done
+set -- "${POSITIONAL_ARGS[@]}"  #// set $1, $2, ...
+unset POSITIONAL_ARGS
+ThisScript="$( readlink -f "$0" )"
+
 True=0
 False=1
-if [ "$1" == "--test" ]; then
+if [ "${TEST_FLAG}" == "YES" ]; then
     TestAll  "$@"
 else
     Main  "$@"
