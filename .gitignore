@@ -3,6 +3,6 @@
 .DS_Store
 .env
 
-build*
+/build*
 patches.yaml
 original.json*
