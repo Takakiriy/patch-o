@@ -2,41 +2,41 @@
 +++ build/last/A.json
 @@ -1,3 +1,3 @@
  {
--    "ID": "A000001",
-+    "ID": "A000029",
+-    "ID": "A000001"
++    "ID": "A000029"
  }
 --- build/AAA.json
 +++ build/last/AAA.json
 @@ -1,3 +1,3 @@
  {
--    "ID": "A000321",
-+    "ID": "A000329",
+-    "ID": "A000321"
++    "ID": "A000329"
  }
 --- base.json
 +++ build/A.json
 @@ -1,3 +1,3 @@
  {
--    "ID": "A123456",
-+    "ID": "A000001",
+-    "ID": "A123456"
++    "ID": "A000001"
  }
 --- build/A.json
 +++ build/AA.json
 @@ -1,3 +1,3 @@
  {
--    "ID": "A000001",
-+    "ID": "A000021",
+-    "ID": "A000001"
++    "ID": "A000021"
  }
 --- build/AA.json
 +++ build/AAA.json
 @@ -1,3 +1,3 @@
  {
--    "ID": "A000021",
-+    "ID": "A000321",
+-    "ID": "A000021"
++    "ID": "A000321"
  }
 --- build/last/AAA.json
 +++ build/last/AAAA.json
 @@ -1,3 +1,3 @@
  {
--    "ID": "A000329",
-+    "ID": "A004329",
+-    "ID": "A000329"
++    "ID": "A004329"
  }

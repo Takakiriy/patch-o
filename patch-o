@@ -47,7 +47,6 @@ function  CopyAndAttachPatch() {
             overwriting="${True}"
         fi
         mkdir -p  "${attachedPath%/*}"
-pp "$pathPair" pathPair
 
         echo  "patching file ${folderPath}${attachedPath} (read from ${folderPath}${basePath})"
         if [ "${overwriting}" == "${False}"  -o  "${overwritten}" == "${True}" ]; then
@@ -71,7 +70,6 @@ pp "$pathPair" pathPair
             rm  "${attachedTemporaryPath}"
         fi
     done
-pp  "end" end
     cd  "${currentPath}"
 }
 
@@ -411,19 +409,6 @@ patching file build/last/AAAA.json (read from build/last/AAA.json)'
         rm -rf  "build"
         cp -ap  "test/2/build_expected/"  "build/"
     # main:
-        cp  "test/2/nested.patch"  "_tmp.patch"
-        # Main  "_tmp.patch"
-if [ "${_Dbg_DEBUGGER_LEVEL}" == "" ]; then            
-echo  "\"cwd\": \"${PWD}\","
-echo  "\"args\": [\"_tmp.patch\"],"
-read  -p "break point> "  dummyVariable
-else
-        ./patch-o  "_tmp.patch"
-fi
-        # cat "_tmp.patch"  |  ./patch-o
-        rm  "_tmp.patch"
-
-        # cat "test/2/nested.patch"  |  ./patch-o 
         local  output="$(x="$( cat "test/2/nested.patch"  |  ./patch-o  )" && echo "$x" || echo "(ERROR:$?)" )"
         echo  "${output}"
         ExitIfMatched  "${output}"  '^\(ERROR:([0-9]*)\)$'
@@ -478,33 +463,41 @@ function  EndTest() {
 }
 
 function  TestAll() {
-    # TestApply  "."  "patch1"
-    # TestReverse  "."  "patch1"
-    # TestApply  "test"  "../patch1"
-    # TestReverse  "test"  "../patch1"
+    TestApply  "."  "patch1"
+    TestReverse  "."  "patch1"
+    TestApply  "test"  "../patch1"
+    TestReverse  "test"  "../patch1"
     TestNestApply
-    # TestManually  "y"
-    # TestManually  "n"
+    TestManually  "y"
+    TestManually  "n"
 }
 
 #// pp "$config"
 #// pp "$config" config
 #// pp "$array" array  ${#array[@]}  "${array[@]}"
+#// pp "123"
 #// $( pp "$config" >&2 )
 function  pp() {
     local  value="$1"
     local  variableName="$2"
-    if [ "${variableName}" != "" ]; then  variableName=" ${variableName} "  ;fi
+    if [ "${variableName}" != "" ]; then  variableName=" ${variableName} "  ;fi  #// Add spaces
     local  oldIFS="$IFS"
     IFS=$'\n'
     local  valueLines=( ${value} )
     IFS="$oldIFS"
-    if [[ "$(declare -p ${variableName} 2>&1 )" =~ "declare -a" ]]; then
-        local  type="array"
-    elif [ "${#valueLines[@]}" == 1  -o  "${#valueLines[@]}" == 0 ]; then
-        local  type="oneLine"
-    else
-        local  type="multiLine"
+
+    local  type=""
+    if [ "${variableName}" != "" ]; then
+        if [[ "$(declare -p ${variableName} 2>&1 )" =~ "declare -a" ]]; then
+            local  type="array"
+        fi
+    fi
+    if [ "${type}" == "" ]; then
+        if [ "${#valueLines[@]}" == 1  -o  "${#valueLines[@]}" == 0 ]; then
+            local  type="oneLine"
+        else
+            local  type="multiLine"
+        fi
     fi
 
     if [[ "${type}" == "oneLine" ]]; then
