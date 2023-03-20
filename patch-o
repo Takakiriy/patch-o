@@ -48,12 +48,14 @@ function  CopyAndAttachPatch() {
         fi
         mkdir -p  "${attachedPath%/*}"
 
-        echo  "patching file ${folderPath}${attachedPath} (read from ${folderPath}${basePath})"
+        echo  "patching file ${folderPath}${attachedPath} (read from ${folderPath}${basePath})"  #search: patch-o error messages
         if [ "${overwriting}" == "${False}"  -o  "${overwritten}" == "${True}" ]; then
 
-            echo  "${patch}"  |  sed -E "s/ *\|//"  |  patch  "${basePath}"  -o "${attachedPath}"  > /dev/null  ||  Error
+            local  output="$( echo  "${patch}"  |  sed -E "s/ *\|//"  |  patch  "${basePath}"  -o "${attachedPath}"  ||  echo "(ERROR)" )"
+            if LastIs  "${output}"  "(ERROR)"; then  PatchCommandError  "${output}"  "${patch}"  "${basePath}"  "${attachedPath}"  ;fi
         else
-            echo  "${patch}"  |  sed -E "s/ *\|//"  |  patch  "${basePath}"  -o "${attachedTemporaryPath}"  > /dev/null  ||  Error
+            local  output="$( echo  "${patch}"  |  sed -E "s/ *\|//"  |  patch  "${basePath}"  -o "${attachedTemporaryPath}"  ||  echo "(ERROR)" )"
+            if LastIs  "${output}"  "(ERROR)"; then  PatchCommandError  "${output}"  "${patch}"  "${basePath}"  "${attachedTemporaryPath}"  ;fi
             diff  "${attachedTemporaryPath}"  "${attachedPath}"  > /dev/null  &&  overwriting="${False}"
             if [ "${overwriting}" == "${True}" ]; then
 
@@ -174,7 +176,7 @@ function  SortPathPairLines() {
         fi
     done
     if [ "${ii}" == "${infiniteLoopStopper}" ]; then
-        Error  "Too many level of dependency between base path and attached path."
+        Error  "ERROR: Too many level of dependency between base path and attached path."
     fi
     IFS="$oldIFS"
     local  levelBar="${firstLevelBar}"
@@ -234,6 +236,23 @@ function  GetBasePath() {
 function  GetAttachedPath() {
     local  pathPair="$1"  #// "__AttachedPath__ :__BasePath__: |"
     echo  "${pathPair}"  |  sed -E  "s/:.*//"  |  sed -E  's/[ '"$(printf '\t\r')"']$//'
+}
+
+function  PatchCommandError() {
+    local  patchOutput="$1"
+    local  patch="$2"
+    local  basePath="$3"
+    local  attachedPath="$4"
+
+    echo  ""
+    echo  "Error:"  >&2
+    echo  "cd \"${PWD}\""  >&2
+    echo  "_patch=\\"  >&2
+    echo  "'$( echo  "${patch}"  |  sed -E "s/ *\|//" )'"  >&2
+    echo  "echo  \"\${_patch}\"  |  patch  \"${basePath}\"  -o \"${attachedPath}\""  >&2
+    echo  "# output: (start)"  >&2
+    echo  "${patchOutput}"  |  sed -E  's/\(ERROR\)$/# output: (end)/'  >&2
+    Error  "ERROR: Cannot attach a patch. Probably because it doesn't match the text before replacement."
 }
 
 function  Input() {
@@ -310,6 +329,20 @@ function  Error() {
     exit  1
 }
 ErrorCount=0
+
+# LastIs
+#     Check in $( )
+# Example:
+#     variable="$( command  || echo "(ERROR)" )"
+#     if LastIs  "${variable}"  "(ERROR)"; then
+function  LastIs() {
+    local  output="$1"
+    local  tag="$2"
+
+    local  last="${output:${#output}-${#tag}:${#tag}}"
+
+    [ "${last}" == "${tag}" ]
+}
 
 # ExitIfMatched
 #     Check exit code and return code in $( ). If checking was failed, do "exit" command.
@@ -403,7 +436,6 @@ patching file build/AA.json (read from build/A.json)
 patching file build/AAA.json (read from build/AA.json)
 patching file build/last/AAA.json (read from build/AAA.json)
 patching file build/last/AAAA.json (read from build/last/AAA.json)'
-
     # set up:
         cp  "test/2/base.json"  "base.json"
         rm -rf  "build"
@@ -418,6 +450,29 @@ patching file build/last/AAAA.json (read from build/last/AAA.json)'
     # clean:
         rm -rf  "build"
         rm  "base.json"
+        EndTest
+}
+
+function  TestNestApplyError() {
+    echo  ""
+    echo  "### TestNestApplyError >> $1"
+    local  expectedOutput=''
+
+    # set up:
+        cp  "test/2/base.json"  "base.json"
+        rm -rf  "build"
+        cp -ap  "test/2/build_expected/"  "build/"
+        cat  "test/2/nested.patch"  |  sed -E  '26 s/A000001/BadOldID/'  >  "_nested.patch"
+    # main:
+        output="$( cat "_nested.patch"  |  ./patch-o  2>&1 )"
+        echo "${output}"
+        if [ "$( echo "${output}"  |  grep 'BadOldID' )" == "" ]; then  Error  ;fi
+        if [ "$( echo "${output}"  |  grep 'build/A.json' )" == "" ]; then  Error  ;fi
+        if [ "$( echo "${output}"  |  grep 'build/AA.json' )" == "" ]; then  Error  ;fi
+    # clean:
+        rm -rf  "build"
+        rm  "base.json"
+        rm  "_nested.patch"
         EndTest
 }
 
@@ -468,6 +523,7 @@ function  TestAll() {
     TestApply  "test"  "../patch1"
     TestReverse  "test"  "../patch1"
     TestNestApply
+    TestNestApplyError
     TestManually  "y"
     TestManually  "n"
 }

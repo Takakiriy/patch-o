@@ -111,3 +111,14 @@ SortPathPairLines: #keyword:
                     c :e: |:1$
                     f :g: |:1$
                     d :f: |:12$  +  ... ":d:" 12$ => 123$
+Error messages: #keyword: patch-o error messages
+    patch-o message:
+        Based on patch original message
+    patch original message:
+        success case: |
+            patching file __AttachedFilePath__ (read from __BaseFilePath__)
+        failed case: |  #// All text output to stdout not stderr
+            patching file __AttachedFilePath__ (read from __BaseFilePath__)
+            Hunk #1 FAILED at 1.
+            1 out of 1 hunk FAILED -- saving rejects to file __AttachedFilePath__.rej
+            ERROR
